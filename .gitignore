@@ -1,0 +1,59 @@
+# --------------------------
+# IDE & System Files
+# --------------------------
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
+
+# --------------------------
+# Environment & Config
+# --------------------------
+.env
+.env.local
+.env.production
+.env.development
+
+# --------------------------
+# WordPress Core & Vendor
+# --------------------------
+/wp/
+/wp-content/uploads/
+/wp-content/cache/
+/wp-content/upgrade/
+/wp-content/ai1wm-backups/
+/wp-content/backup-*/ 
+/vendor/
+/node_modules/
+
+# --------------------------
+# Logs & Temp Files
+# --------------------------
+*.log
+*.tmp
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+composer.lock
+
+# --------------------------
+# Docker & Build Files
+# --------------------------
+/docker-compose.override.yml
+/.docker/
+/.mailpit/
+/data/
+/build/
+/dist/
+/tmp/
+/cache/
+
+# --------------------------
+# OS & Miscellaneous
+# --------------------------
+*.swp
+*.swo
+*.bak
+*.orig
+*.old

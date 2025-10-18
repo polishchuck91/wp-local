@@ -1,0 +1,73 @@
+services:
+  db:
+    image: mariadb:10.11
+    environment:
+      MYSQL_DATABASE: ${DB_NAME}
+      MYSQL_USER: ${DB_USER}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+    volumes:
+      - db_data:/var/lib/mysql
+    healthcheck:
+      # Use CMD-SHELL so we can pass the root password; localhost may use socket,
+      # so prefer TCP 127.0.0.1 to ensure the server is reachable.
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  php:
+    build:
+      context: ./php
+    environment:
+      PHP_MEMORY_LIMIT: ${PHP_MEMORY_LIMIT}
+      MAX_EXEC_TIME: ${MAX_EXEC_TIME}
+      XDEBUG_MODE: ${XDEBUG_MODE}
+      XDEBUG_CLIENT_HOST: ${XDEBUG_CLIENT_HOST}
+      XDEBUG_CLIENT_PORT: ${XDEBUG_CLIENT_PORT}
+    volumes:
+      - ./wp:/var/www/html
+      - ./php/php-dev.ini:/usr/local/etc/php/conf.d/php-dev.ini
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:1.27-alpine
+    ports:
+      - "${HTTP_PORT}:80"
+    volumes:
+      - ./wp:/var/www/html:ro
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - php
+    restart: unless-stopped
+
+  wpcli:
+    image: wordpress:cli-php8.3
+    # keep entrypoint as `wp` so `docker compose run wpcli <command>` works nicely
+    entrypoint: wp
+    # IMPORTANT: work in /var/www/html (NOT /var/www/html/wp) to avoid wp/wp
+    working_dir: /var/www/html
+    environment:
+      WORDPRESS_DB_NAME: ${DB_NAME}
+      WORDPRESS_DB_USER: ${DB_USER}
+      WORDPRESS_DB_PASSWORD: ${DB_PASSWORD}
+      WORDPRESS_DB_HOST: ${DB_HOST}   # should be "db"
+      # This is fine to keep, but note some setups ignore it; your Makefile already handles memory via php -d.
+      WP_CLI_PHP_ARGS: "-d memory_limit=${PHP_MEMORY_LIMIT} -d max_execution_time=${MAX_EXEC_TIME}"
+    volumes:
+      - ./wp:/var/www/html
+      # (optional) if you add ./wp/wp-cli.yml, wp-cli will auto-pick it up
+    depends_on:
+      db:
+        condition: service_healthy
+      php:
+        condition: service_started
+    restart: unless-stopped
+
+volumes:
+  db_data:
+
