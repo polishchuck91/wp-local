@@ -9,7 +9,6 @@ services:
     volumes:
       - db_data:/var/lib/mysql
     healthcheck:
-      # Використовуємо TCP 127.0.0.1, щоб не впиратися у сокети
       test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
       interval: 5s
       timeout: 3s
@@ -19,7 +18,6 @@ services:
   phpmyadmin:
     image: phpmyadmin/phpmyadmin:latest
     container_name: wp-phpmyadmin
-    restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
@@ -31,10 +29,11 @@ services:
       PMA_ARBITRARY: ${PMA_ARBITRARY:-0}
     ports:
       - "${PMA_PORT:-8081}:80"
+    restart: unless-stopped
 
   php:
     build:
-      context: ./php
+      context: ./php            # поклади Dockerfile у ./php/Dockerfile
     environment:
       PHP_MEMORY_LIMIT: ${PHP_MEMORY_LIMIT:-512M}
       MAX_EXEC_TIME: ${MAX_EXEC_TIME:-300}
@@ -43,12 +42,12 @@ services:
       XDEBUG_CLIENT_PORT: ${XDEBUG_CLIENT_PORT:-9003}
     volumes:
       - ./wp:/var/www/html
+      # якщо у Dockerfile вже є zz-dev.ini / zz-xdebug.ini, цей файл можна забрати:
       - ./php/php-dev.ini:/usr/local/etc/php/conf.d/php-dev.ini
     depends_on:
       db:
         condition: service_healthy
     healthcheck:
-      # Перевіряємо, що php-fpm слухає сокет/порт
       test: ["CMD-SHELL", "php -v >/dev/null 2>&1 || exit 1"]
       interval: 10s
       timeout: 3s
@@ -69,7 +68,6 @@ services:
 
   wpcli:
     image: wordpress:cli-php8.3
-    # entrypoint "wp" дозволяє робити: docker compose run --rm wpcli <cmd>
     entrypoint: wp
     working_dir: /var/www/html
     environment:
@@ -77,35 +75,43 @@ services:
       WORDPRESS_DB_USER: ${DB_USER}
       WORDPRESS_DB_PASSWORD: ${DB_PASSWORD}
       WORDPRESS_DB_HOST: ${DB_HOST:-db}
-      # Дублюємо, хоча Makefile вже передає через -e; не зашкодить
       WP_CLI_PHP_ARGS: "-d memory_limit=${PHP_MEMORY_LIMIT:-512M} -d max_execution_time=${MAX_EXEC_TIME:-300}"
     volumes:
       - ./wp:/var/www/html
-      # Якщо додаси ./wp/wp-cli.yml — wpcli сам підхопить
     depends_on:
       db:
         condition: service_healthy
       php:
         condition: service_started
-    restart: unless-stopped
+    # restart не потрібен для one-shot
+    # restart: "no"
 
   mailpit:
     image: axllent/mailpit:latest
     container_name: wp-mailpit
-    restart: unless-stopped
-    ports:
-      - "${MAILPIT_HTTP_PORT:-8025}:8025"  # Web UI
-      - "${MAILPIT_SMTP_PORT:-1025}:1025"  # SMTP server
     environment:
-      # Правильна схема авторизації для UI:
+      # один правильний спосіб авторизації:
       MP_UI_AUTH: "${MAILPIT_USER}:${MAILPIT_PASS}"
-      MP_UI_USER: "${MAILPIT_USER}"   # admin з .env
-      MP_UI_PASS: "${MAILPIT_PASS}"   # secret123 з .env
       MP_MAX_MESSAGES: ${MAILPIT_MAX_MESSAGES:-5000}
-    # За потреби можна додати персистент для листів:
+    ports:
+      - "${MAILPIT_HTTP_PORT:-8025}:8025"
+      - "${MAILPIT_SMTP_PORT:-1025}:1025"
     # volumes:
     #   - mailpit_data:/data
+    restart: unless-stopped
+
+  composer:
+    image: composer:2
+    container_name: wp-composer
+    working_dir: /var/www/html
+    depends_on:
+      - php
+    volumes:
+      - ./wp:/var/www/html
+      - composer-cache:/tmp/composer
+    entrypoint: ["composer"]
 
 volumes:
   db_data:
+  composer-cache:
   # mailpit_data:
