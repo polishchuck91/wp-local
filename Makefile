@@ -1,6 +1,7 @@
 .PHONY: up down logs shell perm wait-db wp-download wp-config wp-install \
         wp-info wp-update wp-cache-flush wp-db-reset wp-reinstall wp-clean \
-        wp-cli-info wp-salts wp-search-replace wp-fix-perms wp-cli-shell
+        wp-cli-info wp-salts wp-search-replace wp-fix-perms wp-cli-shell \
+        site pma mailpit composer wp db health help
 
 include .env
 
@@ -17,6 +18,22 @@ WPCLI_SERVICE    := wpcli
 WPCLI_ENV        := -e WP_CLI_PHP_ARGS='-d memory_limit=$(PHP_MEMORY_LIMIT) -d max_execution_time=$(MAX_EXEC_TIME)'
 # Run wpcli as root for reliable write perms on bind mounts
 WPCLI_USER       := --user root
+
+# -------- Helpers --------
+# Cross-platform URL opener
+OPEN := xdg-open
+ifeq ($(shell uname),Darwin)
+	OPEN := open
+endif
+# Windows/WSL fallback
+ifeq ($(OS),Windows_NT)
+	OPEN := start
+endif
+
+# Default ports if .env doesn't define them
+HTTP_PORT           ?= 8080
+PMA_PORT            ?= 8081
+MAILPIT_HTTP_PORT   ?= 8025
 
 # Convenience macro: run "wp ..." with correct path/flags inside wpcli service
 # NOTE: no extra "wp" token — the wpcli image entrypoint is already "wp"
@@ -80,6 +97,13 @@ wp-config: wp-download
 	$(WP) config set WP_HOME "http://$(DOMAIN):$(HTTP_PORT)" --type=constant
 	$(WP) config set WP_SITEURL "http://$(DOMAIN):$(HTTP_PORT)" --type=constant
 
+	# --- Mailpit SMTP integration ---
+	$(WP) config set WP_MAIL_SMTP_HOST "mailpit" --type=constant
+	$(WP) config set WP_MAIL_SMTP_PORT 1025 --raw
+	$(WP) config set WP_MAIL_SMTP_AUTH false --raw
+	$(WP) config set WP_MAIL_SMTP_SECURE false --raw
+
+
 # Optional: add fresh salts after config
 wp-salts: wp-config
 	$(WP) config shuffle-salts
@@ -128,3 +152,44 @@ wp-search-replace:
 # Helper: remove accidental nested wp/wp (if it ever happened)
 wp-clean:
 	rm -rf wp/wp
+
+# -------- New convenience targets --------
+# Open WordPress site in browser
+site:
+	@echo "Opening site at http://$(DOMAIN):$(HTTP_PORT)"
+	@$(OPEN) "http://$(DOMAIN):$(HTTP_PORT)" >/dev/null 2>&1 || true
+
+# Open phpMyAdmin in browser
+pma:
+	@echo "Opening phpMyAdmin at http://$(DOMAIN):$(PMA_PORT)"
+	@$(OPEN) "http://$(DOMAIN):$(PMA_PORT)" >/dev/null 2>&1 || true
+
+# Open Mailpit UI in browser
+mailpit:
+	@echo "Opening Mailpit at http://$(DOMAIN):$(MAILPIT_HTTP_PORT)"
+	@$(OPEN) "http://$(DOMAIN):$(MAILPIT_HTTP_PORT)" >/dev/null 2>&1 || true
+
+# Run Composer inside the composer service
+# Usage:
+#   make composer CMD="install"
+#   make composer CMD="require timber/timber"
+composer:
+	@if [ -z "$(CMD)" ]; then echo "Usage: make composer CMD=\"install|update|require ...\""; exit 2; fi
+	docker compose run --rm composer $(CMD)
+
+# Run raw WP-CLI with custom args (sometimes faster than composing $(WP) macro)
+# Usage:
+#   make wp ARGS="plugin list"
+#   make wp ARGS="core version"
+wp:
+	@if [ -z "$(ARGS)" ]; then echo "Usage: make wp ARGS=\"...\""; exit 2; fi
+	docker compose run --rm $(WPCLI_USER) -w $(WP_PATH) $(WPCLI_ENV) $(WPCLI_SERVICE) $(ARGS) --allow-root
+
+# Quick MySQL shell (root) inside DB container
+db:
+	docker compose exec $(DB_SERVICE) sh -lc 'mysql -uroot -p$$MYSQL_ROOT_PASSWORD'
+
+# Check DB health via compose (extra to your wait-db)
+health:
+	@echo "Checking DB health…"
+	@docker compose ps $(DB_SERVICE)
